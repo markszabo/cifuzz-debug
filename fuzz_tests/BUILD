@@ -14,4 +14,5 @@ cc_fuzz_test(
         "@cifuzz",
         "//code:code",
         ],
+    tags = ["fuzz_test"],
 )
