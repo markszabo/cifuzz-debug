@@ -1,0 +1,87 @@
+name: Build the fuzz tests
+
+on:
+  push
+
+env:
+  CI_FUZZ_SERVER: grpc.code-intelligence.com:443
+
+jobs:
+  build:
+    runs-on: [ubuntu-latest]
+    container:
+      image: ubuntu:focal
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update && DEBIAN_FRONTEND=noninteractive TZ="Asia/Tokyo" apt-get install -y git jq curl wget ca-certificates wget curl make clang llvm-12 lcov default-jdk python3 zip openssh-client
+
+      - name: Update alternatives for llvm to use llvm-12
+        run: | #from https://gist.github.com/junkdog/70231d6953592cd6f27def59fe19e50d
+              version=12
+              priority=100
+
+              update-alternatives \
+                  --install /usr/bin/llvm-config       llvm-config      /usr/bin/llvm-config-${version} ${priority} \
+                  --slave   /usr/bin/llvm-ar           llvm-ar          /usr/bin/llvm-ar-${version} \
+                  --slave   /usr/bin/llvm-as           llvm-as          /usr/bin/llvm-as-${version} \
+                  --slave   /usr/bin/llvm-bcanalyzer   llvm-bcanalyzer  /usr/bin/llvm-bcanalyzer-${version} \
+                  --slave   /usr/bin/llvm-cov          llvm-cov         /usr/bin/llvm-cov-${version} \
+                  --slave   /usr/bin/llvm-diff         llvm-diff        /usr/bin/llvm-diff-${version} \
+                  --slave   /usr/bin/llvm-dis          llvm-dis         /usr/bin/llvm-dis-${version} \
+                  --slave   /usr/bin/llvm-dwarfdump    llvm-dwarfdump   /usr/bin/llvm-dwarfdump-${version} \
+                  --slave   /usr/bin/llvm-extract      llvm-extract     /usr/bin/llvm-extract-${version} \
+                  --slave   /usr/bin/llvm-link         llvm-link        /usr/bin/llvm-link-${version} \
+                  --slave   /usr/bin/llvm-mc           llvm-mc          /usr/bin/llvm-mc-${version} \
+                  --slave   /usr/bin/llvm-profdata     llvm-profdata    /usr/bin/llvm-profdata-${version} \
+                  --slave   /usr/bin/llvm-nm           llvm-nm          /usr/bin/llvm-nm-${version} \
+                  --slave   /usr/bin/llvm-objdump      llvm-objdump     /usr/bin/llvm-objdump-${version} \
+                  --slave   /usr/bin/llvm-ranlib       llvm-ranlib      /usr/bin/llvm-ranlib-${version} \
+                  --slave   /usr/bin/llvm-readobj      llvm-readobj     /usr/bin/llvm-readobj-${version} \
+                  --slave   /usr/bin/llvm-rtdyld       llvm-rtdyld      /usr/bin/llvm-rtdyld-${version} \
+                  --slave   /usr/bin/llvm-size         llvm-size        /usr/bin/llvm-size-${version} \
+                  --slave   /usr/bin/llvm-stress       llvm-stress      /usr/bin/llvm-stress-${version} \
+                  --slave   /usr/bin/llvm-symbolizer   llvm-symbolizer  /usr/bin/llvm-symbolizer-${version} \
+                  --slave   /usr/bin/llvm-tblgen       llvm-tblgen      /usr/bin/llvm-tblgen-${version}
+
+      - name: Checkout repository
+        uses: actions/checkout@v2
+          
+      - name: Install bazel
+        run: |
+          wget https://github.com/bazelbuild/bazelisk/releases/download/v1.12.2/bazelisk-linux-amd64 -O /usr/local/sbin/bazelisk && \
+          chmod +x /usr/local/sbin/bazelisk && \
+          ln -s /usr/local/sbin/bazelisk /usr/local/sbin/bazel
+
+      - name: Install cifuzz
+        run: |
+          sh -c "$(curl -fsSL https://raw.githubusercontent.com/CodeIntelligenceTesting/cifuzz/main/install.sh)"
+          echo $PATH
+          echo "PATH=$PATH:/home/github-runner/.local/bin" >> $GITHUB_ENV
+
+      - name: Install cictl
+        run: |
+          mkdir bin
+          wget https://s3.eu-central-1.amazonaws.com/public.code-intelligence.com/cictl/cictl-4.1.0-linux
+          mv cictl-4.1.0-linux "$(pwd)/bin/cictl"
+          chmod +x "$(pwd)/bin/cictl"
+          echo "PATH=$PATH:$(pwd)/bin" >> $GITHUB_ENV
+
+      - name: Login to CIFuzz
+        env:
+          CI_FUZZ_API_TOKEN: ${{ secrets.CI_FUZZ_API_TOKEN }}
+        run: |
+          echo "${CI_FUZZ_API_TOKEN}" | cictl --server "${CI_FUZZ_SERVER}" login --quiet
+      
+      - name: Build the fuzz tests
+        run: |
+          cifuzz bundle --timeout="1m" //... -o fuzz_target.tar.gz
+
+      - name: Upload fuzztest bundle and start the run
+        env:
+          CI_FUZZ_PROJECT_NAME: ${{ secrets.CI_FUZZ_PROJECT_NAME }}
+        run: |
+          ARTIFACT_NAME=$(cictl --server "${CI_FUZZ_SERVER}" import artifact "fuzz_target.tar.gz" --project-name "projects/${CI_FUZZ_PROJECT_NAME}")
+          echo "Artifact name: $ARTIFACT_NAME"
+          CAMPAIGN_RUN_NAME=$(cictl --server "${CI_FUZZ_SERVER}" start "${ARTIFACT_NAME}")
+          echo "Campaign run name: $CAMPAIGN_RUN_NAME"
