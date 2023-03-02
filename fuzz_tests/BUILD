@@ -1,7 +1,7 @@
 load("@rules_fuzzing//fuzzing:cc_defs.bzl", "cc_fuzz_test")
 
 cc_fuzz_test(
-    name = "1234567890123456789012345678901234567890",
+    name = "fuzz_code",
     srcs = ["fuzz_code.cpp"],
     corpus = glob(
         ["fuzz_code_inputs/**"],
@@ -13,6 +13,6 @@ cc_fuzz_test(
     deps = [
         "@cifuzz",
         "//code:code",
+        "//code:main",
         ],
-    tags = ["fuzz_test"],
 )
