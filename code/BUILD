@@ -6,3 +6,12 @@ cc_library(
     hdrs = ["code.h"],
     visibility = ["//visibility:public"],
 )
+
+cc_binary(
+    name = "main",
+    srcs = ["main.cpp"],
+    deps = [
+        ":code",
+    ],
+    visibility = ["//visibility:public"],
+)
